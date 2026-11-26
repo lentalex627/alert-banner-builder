@@ -17,10 +17,14 @@ interface ColorPickerProps {
 export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
   const [inputValue, setInputValue] = React.useState(value)
+  const [prevValue, setPrevValue] = React.useState(value)
 
-  React.useEffect(() => {
+  // Keep the text box in sync when the value changes from outside
+  // (type presets, reset). Adjusting state during render avoids an effect.
+  if (value !== prevValue) {
+    setPrevValue(value)
     setInputValue(value)
-  }, [value])
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value

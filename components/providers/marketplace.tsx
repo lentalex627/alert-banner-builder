@@ -1,113 +1,173 @@
 "use client";
 
-import React, {
-  useEffect,
-  useState,
-  ReactNode,
+import {
   createContext,
   useContext,
+  useEffect,
+  useState,
+  type ReactNode,
 } from "react";
-import {
-  ApplicationContext,
-  ClientSDK,
-} from "@sitecore-marketplace-sdk/client";
+import { ClientSDK, type ApplicationContext } from "@sitecore-marketplace-sdk/client";
 import { XMC } from "@sitecore-marketplace-sdk/xmc";
 
-interface ClientSDKProviderProps {
-  children: ReactNode;
+/**
+ * One ClientSDK per browser tab. React Strict Mode runs effects twice in
+ * development, and a second ClientSDK.init() against the same parent window
+ * just adds noise, so the in-flight promise is cached at module level.
+ */
+let clientPromise: Promise<ClientSDK> | null = null;
+
+function getClient(): Promise<ClientSDK> {
+  if (!clientPromise) {
+    clientPromise = ClientSDK.init({
+      target: window.parent,
+      modules: [XMC],
+    }).catch((error: unknown) => {
+      // Let the next attempt try again instead of caching the failure
+      clientPromise = null;
+      throw error;
+    });
+  }
+  return clientPromise;
+}
+
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+
+interface Connection {
+  client: ClientSDK;
+  appContext: ApplicationContext;
+}
+
+async function connectWithRetry(): Promise<Connection> {
+  // Opened directly in a browser tab instead of inside Sitecore
+  if (window.parent === window) {
+    throw new Error(
+      "This app has to run inside SitecoreAI. Open it from the Page builder custom field, not directly in a browser tab."
+    );
+  }
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      const client = await getClient();
+      const { data } = await client.query("application.context");
+      if (!data) {
+        throw new Error("The host returned an empty application context.");
+      }
+      return { client, appContext: data };
+    } catch (err) {
+      lastError = err;
+      if (attempt < RETRY_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Unknown error connecting to SitecoreAI.");
 }
 
 const ClientSDKContext = createContext<ClientSDK | null>(null);
 const AppContextContext = createContext<ApplicationContext | null>(null);
 
-export const MarketplaceProvider: React.FC<ClientSDKProviderProps> = ({
-  children,
-}) => {
-  const [client, setClient] = useState<ClientSDK | null>(null);
-  const [appContext, setAppContext] = useState<ApplicationContext | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+type State =
+  | { status: "connecting" }
+  | { status: "ready"; connection: Connection }
+  | { status: "error"; message: string };
+
+export function MarketplaceProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<State>({ status: "connecting" });
+  // Bumping this re-runs the connection effect (used by "Try again")
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (client) {
-      client.query("application.context").then((res) => {
-        if (res && res.data) {
-          setAppContext(res.data);
-          console.log("appContext", res.data);
+    let cancelled = false;
+    connectWithRetry().then(
+      (connection) => {
+        if (!cancelled) setState({ status: "ready", connection });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
         }
-      });
-    }
-  }, [client]);
-
-  useEffect(() => {
-    const init = async () => {
-      const config = {
-        target: window.parent,
-        modules: [XMC],
-      };
-      try {
-        setLoading(true);
-        const client = await ClientSDK.init(config);
-        setClient(client);
-      } catch (error) {
-        console.error("Error initializing client SDK", error);
-        setError("Error initializing client SDK");
-      } finally {
-        setLoading(false);
       }
+    );
+    return () => {
+      cancelled = true;
     };
+  }, [attempt]);
 
-    init();
-  }, []);
+  const retry = () => {
+    setState({ status: "connecting" });
+    setAttempt((n) => n + 1);
+  };
 
-  if (loading) {
-    return <div>Attempting to connect to Sitecore Marketplace...</div>;
-  }
-
-  if (error) {
+  if (state.status === "connecting") {
     return (
-      <div>
-        <h1>Error initializing Marketplace SDK</h1>
-        <div>{error}</div>
-        <div>
-          Please check if the client SDK is loaded inside Sitecore Marketplace
-          parent window and you have properly set your app&apos;s extension points.
-        </div>
+      <div className="flex h-screen items-center justify-center gap-2 text-sm text-muted-foreground">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        Connecting to SitecoreAI...
       </div>
     );
   }
 
-  if (!client) {
-    return null;
-  }
-
-  if (!appContext) {
-    return null;
+  if (state.status === "error") {
+    return (
+      <div className="mx-auto flex h-screen max-w-lg flex-col justify-center gap-3 p-6 text-sm">
+        <h1 className="text-base font-semibold">Could not connect to SitecoreAI</h1>
+        <p className="text-muted-foreground">{state.message}</p>
+        <p className="text-muted-foreground">
+          Check that the app is installed in your organization and that the
+          custom field extension point is enabled for it in the Cloud Portal.
+        </p>
+        <button
+          type="button"
+          onClick={retry}
+          className="self-start rounded-md border px-3 py-1.5 font-medium hover:bg-muted"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   return (
-    <ClientSDKContext.Provider value={client}>
-      <AppContextContext.Provider value={appContext}>
+    <ClientSDKContext.Provider value={state.connection.client}>
+      <AppContextContext.Provider value={state.connection.appContext}>
         {children}
       </AppContextContext.Provider>
     </ClientSDKContext.Provider>
   );
-};
+}
 
-export const useMarketplaceClient = () => {
+export function useMarketplaceClient(): ClientSDK {
   const context = useContext(ClientSDKContext);
   if (!context) {
-    throw new Error(
-      "useMarketplaceClient must be used within a ClientSDKProvider"
-    );
+    throw new Error("useMarketplaceClient must be used inside <MarketplaceProvider>.");
   }
   return context;
-};
+}
 
-export const useAppContext = () => {
+export function useAppContext(): ApplicationContext {
   const context = useContext(AppContextContext);
   if (!context) {
-    throw new Error("useAppContext must be used within a ClientSDKProvider");
+    throw new Error("useAppContext must be used inside <MarketplaceProvider>.");
   }
   return context;
-};
+}
+
+/**
+ * Custom field values can arrive as a JSON string or as an already-parsed
+ * object depending on the host. Normalize to a string (or null when empty).
+ */
+export function normalizeFieldValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value.trim() ? value : null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}

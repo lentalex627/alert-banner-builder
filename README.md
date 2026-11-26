@@ -1,151 +1,106 @@
 # Alert Banner Builder
 
-A Sitecore XM Cloud Marketplace App that provides an interactive custom field integration for content editors to craft alert messages with visual configuration. The output is saved as JSON to a custom field.
+A Sitecore Marketplace app that gives content authors a visual editor for site alert banners, right inside the SitecoreAI Page builder. Authors pick a message, severity, colors, icon, call to action and display behavior, see a live preview, and the result is saved to the field as JSON. Your head app reads that JSON and renders the banner however your design system wants.
 
-## Features
+It runs as a **Page builder custom field** extension, so it shows up wherever you add the field to a template.
 
-### Core Functionality
-- **Custom Field Integration**: Seamlessly integrates with Sitecore XM Cloud as a custom field component
-- **Visual Builder**: Intuitive split-pane interface with configuration on the left and live preview on the right
-- **Real-time Preview**: See changes instantly as you configure the alert banner
-- **JSON Output**: Configuration is saved as structured JSON for easy consumption by frontend applications
+![Alert Banner Builder in the Page builder](docs/alert-banner-builder.png)
 
-### Alert Configuration Options
+## What authors can configure
 
-| Option | Description |
-|--------|-------------|
-| **Message** | Alert text content (required) |
-| **Type/Severity** | Info, Warning, Error, Success - with automatic color presets |
-| **Display Options** | Dismissible, Persistent, or Timed auto-dismiss |
-| **Icon Selection** | 12 built-in icons from Material Design Icons |
-| **Colors** | Custom background and text colors with preset palette |
-| **CTA Button** | Optional call-to-action with text, URL, and style options |
-| **Position** | Top, Bottom, Fixed (sticky), or Inline |
-| **Animation** | Slide down, Slide up, Fade in, Bounce, Shake, or None |
+| Option | Values |
+| --- | --- |
+| Message | Plain text, required |
+| Type | `info`, `warning`, `error`, `success` (each sets default colors and icon) |
+| Display behavior | `dismissible`, `persistent`, `timed` (auto-hide after N seconds) |
+| Icon | 12 Material Design Icons |
+| Colors | Background and text, preset palette or any hex value |
+| Call to action | Optional button with text, URL and style (`primary`, `secondary`, `text`) |
+| Position | `top`, `bottom`, `fixed`, `inline` |
+| Animation | `none`, `slide-down`, `slide-up`, `fade-in`, `bounce`, `shake` |
 
-### JSON Output Structure
+CTA links are validated before saving. Only relative paths and `http(s)`, `mailto:` and `tel:` links are accepted.
+
+## Field value
+
+The field stores a JSON string like this:
 
 ```json
 {
-  "message": "Your alert text here",
+  "message": "Scheduled maintenance Saturday 2-4 AM CT.",
   "type": "warning",
   "displayOption": "dismissible",
   "dismissible": true,
   "icon": "alert-outline",
   "backgroundColor": "#FFF6E7",
   "textColor": "#7A2F00",
-  "cta": {
-    "text": "Learn More",
-    "url": "/more-info",
-    "style": "primary"
-  },
+  "cta": { "text": "Details", "url": "/status", "style": "primary" },
   "position": "top",
   "animation": "slide-down"
 }
 ```
 
-## Getting Started
+`timedDuration` (seconds) is present when `displayOption` is `timed`. `cta` is omitted when the author didn't add one. An empty field means "no banner". The full type lives in [`types/alert-banner.ts`](types/alert-banner.ts).
 
-### Prerequisites
-- Node.js 16 or later
-- npm 10 or later
-- Access to Sitecore Cloud Portal
-- XM Cloud subscription
+## Rendering it in your head app
 
-### Installation
+[`examples/content-sdk/AlertBanner.tsx`](examples/content-sdk/AlertBanner.tsx) is a drop-in Content SDK (Next.js) component. It parses the field defensively, re-validates colors and the CTA URL, handles dismiss and timed hide, and remembers a dismissal for the browser session. Styling is left to you through `alert-banner--*` class names.
+
+Copy it into your app, register it in your component map, and rename the `AlertBanner` field in the props type to match your template.
+
+## Getting started
+
+Requirements: Node.js 20.9 or later (Next.js 16), access to the Sitecore Cloud Portal, and a SitecoreAI environment.
 
 ```bash
-# Install dependencies
 npm install
-
-# Run development server
-npm run dev
-
-# Build for production
-npm run build
+npm run dev        # http://localhost:3000
 ```
 
-### Development
+The app only works inside SitecoreAI. Opened directly in a browser it shows a "has to run inside SitecoreAI" message, which is expected.
 
-The app runs on `http://localhost:3000` by default. For local development with Sitecore XM Cloud, you'll need to:
+To try it in SitecoreAI:
 
-1. Register your app in the Sitecore Cloud Portal
-2. Configure the custom field extension point (`xmc:pages:customfield`)
-3. Set up the appropriate field type in your content templates
+1. Register a custom app in the Cloud Portal and point it at your URL (your local dev server for development, your deployed URL after that). See [Custom Marketplace apps](https://doc.sitecore.com/mp/en/developers/marketplace/custom-marketplace-apps.html).
+2. Enable the **Page builder custom field** extension point for the app and install it in your organization.
+3. Add a field to your template with type **Marketplace Types > Plugin** and set its **Source** to your Marketplace app ID, then reload the Page builder. See [Enable a custom field in the SitecoreAI Page builder](https://doc.sitecore.com/mp/en/developers/marketplace/enable-a-custom-field-in-the-sitecoreai-page-builder.html).
 
-## Technology Stack
+## Scripts
 
-- **Framework**: Next.js 15 with App Router
-- **UI Components**: Sitecore Blok Design System (shadcn/ui + Tailwind CSS)
-- **SDK**: Sitecore Marketplace SDK
-  - `@sitecore-marketplace-sdk/client` - Core client SDK
-  - `@sitecore-marketplace-sdk/xmc` - XM Cloud module
-- **Icons**: Material Design Icons (@mdi/js)
-- **Styling**: Tailwind CSS v4
+| Script | What it does |
+| --- | --- |
+| `npm run dev` | Local dev server |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint (Next.js core web vitals + TypeScript rules) |
+| `npm run typecheck` | `tsc --noEmit` |
 
-## Project Structure
+## Deploying
+
+It's a standard Next.js app, so Vercel works out of the box: import the repo, deploy, then put the production URL in your app registration in the Cloud Portal. Any host that runs Next.js 16 is fine.
+
+## Project layout
 
 ```
-├── app/
-│   ├── globals.css          # Global styles and animations
-│   ├── layout.tsx           # Root layout with MarketplaceProvider
-│   └── page.tsx             # Main page rendering AlertBannerBuilder
-├── components/
-│   ├── alert-banner/        # Alert Banner Builder components
-│   │   ├── alert-banner-builder.tsx  # Main component
-│   │   ├── alert-preview.tsx         # Live preview panel
-│   │   ├── configuration-panel.tsx   # Configuration form
-│   │   ├── color-picker.tsx          # Color selection component
-│   │   └── icon-picker.tsx           # Icon selection component
-│   ├── providers/
-│   │   └── marketplace.tsx  # SDK initialization provider
-│   └── ui/                  # Reusable UI components
-├── lib/
-│   ├── icon.tsx             # MDI icon component
-│   └── utils.ts             # Utility functions
-└── types/
-    └── alert-banner.ts      # TypeScript types and constants
+app/                     layout (wraps everything in MarketplaceProvider) and page
+components/alert-banner/ builder, configuration panel, live preview, pickers
+components/providers/    Marketplace SDK connection (retry, error state, field value helpers)
+components/ui/           Blok / shadcn UI primitives
+types/alert-banner.ts    field JSON type, defaults, presets
+examples/content-sdk/    rendering component for your head app (not part of this build)
 ```
 
-## Marketplace Integration
+## How it talks to Sitecore
 
-This app uses the Sitecore Marketplace SDK for:
+`components/providers/marketplace.tsx` initializes `ClientSDK` once per tab with the `XMC` module, queries `application.context`, and retries a few times before showing an error with a "Try again" button. The builder then uses:
 
-- **Field Value Management**: `getValue()` and `setValue()` for reading/writing JSON
-- **Application Context**: Accessing app metadata and extension points
-- **Secure Communication**: PostMessage API with origin validation
+- `client.getValue()` to load the current field value
+- `client.setValue(json, true)` to save it and reload the Page builder canvas
+- `client.closeApp()` to close the field dialog after saving, same as the Sitecore custom field sample
 
-### Extension Point
+## Contributing
 
-The app is designed for the `xmc:pages:customfield` extension point, allowing it to be used as a custom field type in XM Cloud Pages.
-
-## Customization
-
-### Adding New Icons
-
-Edit `components/alert-banner/icon-picker.tsx` to add new icons:
-
-```typescript
-import { mdiNewIcon } from "@mdi/js"
-
-const iconMap: Record<string, string> = {
-  // ... existing icons
-  "new-icon": mdiNewIcon,
-}
-```
-
-### Adding Color Presets
-
-Edit `types/alert-banner.ts` to modify the color palette:
-
-```typescript
-export const colorPresets = [
-  // Add your custom colors
-  '#YOUR_COLOR',
-  // ...
-]
-```
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-This project is part of the Sitecore XM Cloud Marketplace ecosystem.
+[MIT](LICENSE)

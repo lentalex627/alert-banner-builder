@@ -1,12 +1,17 @@
 "use client"
 
 import * as React from "react"
-import { useMarketplaceClient } from "@/components/providers/marketplace"
+import { normalizeFieldValue, useMarketplaceClient } from "@/components/providers/marketplace"
 import { ConfigurationPanel } from "./configuration-panel"
 import { AlertPreview } from "./alert-preview"
-import { AlertBannerConfig, defaultAlertConfig } from "@/types/alert-banner"
+import {
+  AlertBannerConfig,
+  alertTypePresets,
+  availableIcons,
+  defaultAlertConfig,
+} from "@/types/alert-banner"
 import { Button } from "@/components/ui/button"
-import { Save, RotateCcw, AlertCircle, CheckCircle2, Trash2 } from "lucide-react"
+import { Save, RotateCcw, AlertCircle, CheckCircle2, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface SaveStatus {
@@ -14,48 +19,57 @@ interface SaveStatus {
   message?: string
 }
 
+/**
+ * Parse whatever the field currently holds into a full config. Older or
+ * hand-edited values are merged over the defaults so every key exists, and an
+ * unknown icon name falls back to the preset for the alert type.
+ */
+function parseStoredConfig(raw: string | null): AlertBannerConfig {
+  if (!raw) return defaultAlertConfig
+  try {
+    const parsed = JSON.parse(raw) as Partial<AlertBannerConfig>
+    const merged: AlertBannerConfig = { ...defaultAlertConfig, ...parsed }
+    if (!availableIcons.some((icon) => icon.name === merged.icon)) {
+      merged.icon = alertTypePresets[merged.type]?.icon ?? defaultAlertConfig.icon
+    }
+    return merged
+  } catch {
+    console.warn("Alert Banner Builder: field value was not valid JSON, starting fresh")
+    return defaultAlertConfig
+  }
+}
+
 export function AlertBannerBuilder() {
   const client = useMarketplaceClient()
   const [config, setConfig] = React.useState<AlertBannerConfig>(defaultAlertConfig)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [saveStatus, setSaveStatus] = React.useState<SaveStatus>({ type: "idle" })
-  const [hasChanges, setHasChanges] = React.useState(false)
   const [initialConfig, setInitialConfig] = React.useState<AlertBannerConfig | null>(null)
 
-  // Load initial value from Sitecore field
+  // Load the current value from the Sitecore field
   React.useEffect(() => {
-    const loadValue = async () => {
-      try {
-        const value = await client.getValue()
-        if (value) {
-          let parsed: AlertBannerConfig
-          if (typeof value === "string") {
-            parsed = JSON.parse(value)
-          } else {
-            parsed = value as AlertBannerConfig
-          }
-          // Merge with defaults to ensure all fields exist
-          const mergedConfig = { ...defaultAlertConfig, ...parsed }
-          setConfig(mergedConfig)
-          setInitialConfig(mergedConfig)
-        } else {
-          setInitialConfig(defaultAlertConfig)
-        }
-      } catch (error) {
+    let cancelled = false
+    client
+      .getValue()
+      .then((value: unknown) => parseStoredConfig(normalizeFieldValue(value)))
+      .catch((error: unknown) => {
         console.error("Error loading field value:", error)
-        setInitialConfig(defaultAlertConfig)
-      }
+        return defaultAlertConfig
+      })
+      .then((loaded) => {
+        if (cancelled) return
+        setConfig(loaded)
+        setInitialConfig(loaded)
+      })
+    return () => {
+      cancelled = true
     }
-    loadValue()
   }, [client])
 
-  // Track changes
-  React.useEffect(() => {
-    if (initialConfig) {
-      const hasChanged = JSON.stringify(config) !== JSON.stringify(initialConfig)
-      setHasChanges(hasChanged)
-    }
-  }, [config, initialConfig])
+  const hasChanges = React.useMemo(
+    () => initialConfig !== null && JSON.stringify(config) !== JSON.stringify(initialConfig),
+    [config, initialConfig]
+  )
 
   // Validate configuration
   const validate = (): boolean => {
@@ -68,6 +82,10 @@ export function AlertBannerBuilder() {
     if (config.cta) {
       if (config.cta.text && !config.cta.url) {
         newErrors.ctaUrl = "URL is required when button text is provided"
+      }
+      // Block javascript: and other odd schemes before they reach the page
+      if (config.cta.url && !/^(https?:\/\/|\/|#|mailto:|tel:)/i.test(config.cta.url.trim())) {
+        newErrors.ctaUrl = "Use a relative path (/page) or an http(s), mailto: or tel: link"
       }
     }
 
@@ -92,16 +110,15 @@ export function AlertBannerBuilder() {
       }
 
       const jsonValue = JSON.stringify(configToSave)
+      // Second argument asks the host to reload the canvas so the page
+      // preview picks up the new value
       await client.setValue(jsonValue, true)
-      
+
       setInitialConfig(configToSave)
-      setHasChanges(false)
       setSaveStatus({ type: "success", message: "Alert configuration saved!" })
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSaveStatus({ type: "idle" })
-      }, 3000)
+
+      // Same pattern as the Sitecore custom field sample: save, then close
+      await client.closeApp()
     } catch (error) {
       console.error("Error saving field value:", error)
       setSaveStatus({ 
@@ -131,7 +148,6 @@ export function AlertBannerBuilder() {
       // Reset to default config
       setConfig(defaultAlertConfig)
       setInitialConfig(defaultAlertConfig)
-      setHasChanges(false)
       setErrors({})
       setSaveStatus({ type: "success", message: "Alert cleared!" })
       
@@ -154,8 +170,9 @@ export function AlertBannerBuilder() {
     // Clear errors for fields that are now valid
     if (newConfig.message.trim() && errors.message) {
       setErrors((prev) => {
-        const { message: _message, ...rest } = prev
-        return rest
+        const next = { ...prev }
+        delete next.message
+        return next
       })
     }
   }
@@ -189,7 +206,7 @@ export function AlertBannerBuilder() {
             >
               {saveStatus.type === "saving" && (
                 <>
-                  <span className="animate-spin">⏳</span>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                   Saving...
                 </>
               )}
@@ -209,6 +226,15 @@ export function AlertBannerBuilder() {
           )}
 
           {/* Action Buttons */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void client.closeApp()}
+            disabled={saveStatus.type === "saving"}
+          >
+            <X className="h-4 w-4 mr-1.5" />
+            Close
+          </Button>
           <Button
             variant="outline"
             colorScheme="danger"
@@ -234,7 +260,7 @@ export function AlertBannerBuilder() {
             disabled={!hasChanges || saveStatus.type === "saving"}
           >
             <Save className="h-4 w-4 mr-1.5" />
-            Save
+            Save & close
           </Button>
         </div>
       </header>

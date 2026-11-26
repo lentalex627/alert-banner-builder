@@ -12,22 +12,22 @@ interface AlertPreviewProps {
 }
 
 export function AlertPreview({ config }: AlertPreviewProps) {
-  const [isVisible, setIsVisible] = React.useState(true)
+  // Dismissing hides the banner for the config it was dismissed on. Any
+  // config change brings it back without needing an effect.
+  const [dismissedFor, setDismissedFor] = React.useState<AlertBannerConfig | null>(null)
+  const [replaying, setReplaying] = React.useState(false)
   const [animationKey, setAnimationKey] = React.useState(0)
-
-  // Reset visibility when config changes
-  React.useEffect(() => {
-    setIsVisible(true)
-  }, [config])
+  const isVisible = dismissedFor !== config && !replaying
 
   const handleDismiss = () => {
-    setIsVisible(false)
+    setDismissedFor(config)
   }
 
   const handleReplay = () => {
-    setIsVisible(false)
+    setReplaying(true)
+    setDismissedFor(null)
     setAnimationKey((k) => k + 1)
-    setTimeout(() => setIsVisible(true), 100)
+    setTimeout(() => setReplaying(false), 100)
   }
 
   const getAnimationClass = () => {

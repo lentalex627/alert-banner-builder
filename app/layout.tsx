@@ -1,21 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { MarketplaceProvider } from "@/components/providers/marketplace";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Alert Banner Builder | Sitecore XM Cloud",
-  description: "Custom field integration for building alert banners in Sitecore XM Cloud",
+  title: "Alert Banner Builder | SitecoreAI",
+  description: "Custom field integration for building alert banners in SitecoreAI",
 };
 
 export default function RootLayout({
@@ -26,7 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
       >
         <MarketplaceProvider>{children}</MarketplaceProvider>
       </body>

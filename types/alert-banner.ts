@@ -39,7 +39,7 @@ export const defaultAlertConfig: AlertBannerConfig = {
   type: 'info',
   displayOption: 'dismissible',
   dismissible: true,
-  icon: 'info-circle',
+  icon: 'information-outline',
   backgroundColor: '#E1EAFF',
   textColor: '#293BA1',
   position: 'top',

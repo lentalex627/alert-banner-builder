@@ -71,8 +71,9 @@ export function ConfigurationPanel({ config, onChange, errors }: ConfigurationPa
   }
 
   const removeCTA = () => {
-    const { cta: _cta, ...rest } = config
-    onChange(rest as AlertBannerConfig)
+    const rest: AlertBannerConfig = { ...config }
+    delete rest.cta
+    onChange(rest)
     setCtaOpen(false)
   }
 
@@ -141,8 +142,13 @@ export function ConfigurationPanel({ config, onChange, errors }: ConfigurationPa
           <Select
             value={config.displayOption}
             onValueChange={(v) => {
-              updateConfig("displayOption", v as DisplayOption)
-              updateConfig("dismissible", v === "dismissible")
+              // One onChange call: two separate updateConfig calls would each
+              // spread the same stale config and the second would undo the first
+              onChange({
+                ...config,
+                displayOption: v as DisplayOption,
+                dismissible: v === "dismissible",
+              })
             }}
           >
             <SelectTrigger>
@@ -284,7 +290,12 @@ export function ConfigurationPanel({ config, onChange, errors }: ConfigurationPa
                 value={config.cta?.url || ''}
                 onChange={(e) => updateCTA("url", e.target.value)}
                 placeholder="/more-info or https://..."
+                aria-invalid={Boolean(errors.ctaUrl)}
+                className={cn(errors.ctaUrl && "border-destructive focus-visible:ring-destructive")}
               />
+              {errors.ctaUrl && (
+                <p className="text-xs text-destructive">{errors.ctaUrl}</p>
+              )}
             </div>
             <div className="space-y-3">
               <Label className="text-sm">Button Style</Label>
